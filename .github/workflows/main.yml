@@ -8,21 +8,120 @@ on:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build JARVIS APK
     runs-on: ubuntu-latest
 
     steps:
 
-      # --------------------------------------------------
-      # 1. Download the repository
-      # --------------------------------------------------
+      # ==========================================
+      # 1. CHECKOUT REPOSITORY
+      # ==========================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
-      # --------------------------------------------------
-      # 2. Install Java 17
-      # --------------------------------------------------
+      # ==========================================
+      # 2. SHOW WHAT IS IN THE REPOSITORY
+      # ==========================================
+      - name: Inspect repository
+        run: |
+          echo "Repository contents:"
+          find . -maxdepth 4 -type f | sort
+
+
+      # ==========================================
+      # 3. FIND OR EXTRACT THE JARVIS PROJECT
+      # ==========================================
+      - name: Prepare Android project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for Gradle project..."
+
+          # First check whether the project is already extracted.
+          if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
+            echo "Gradle project found in repository root."
+            exit 0
+          fi
+
+          # Search for an existing Gradle project.
+          FOUND_SETTINGS=$(find . -type f \
+            -name "settings.gradle" -o -name "settings.gradle.kts" \
+            -not -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -n "$FOUND_SETTINGS" ]; then
+            echo "Gradle project already exists at:"
+            echo "$(dirname "$FOUND_SETTINGS")"
+            exit 0
+          fi
+
+          # If the project is inside a ZIP, extract it.
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" \
+            -not -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found ZIP:"
+            echo "$ZIP_FILE"
+
+            mkdir -p jarvis-project
+
+            unzip -o "$ZIP_FILE" -d jarvis-project
+
+            echo ""
+            echo "ZIP extracted."
+            echo "Searching extracted files..."
+
+            find jarvis-project -maxdepth 5 -type f | sort
+
+            exit 0
+          fi
+
+          echo ""
+          echo "ERROR: No Gradle project or ZIP file was found."
+          echo ""
+          echo "Repository contents:"
+          find . -maxdepth 5 -type f | sort
+
+          exit 1
+
+
+      # ==========================================
+      # 4. LOCATE THE REAL GRADLE ROOT
+      # ==========================================
+      - name: Locate Gradle root
+        id: gradle_root
+        shell: bash
+        run: |
+          set -e
+
+          SETTINGS_FILE=$(find . -type f \
+            -name "settings.gradle" -o -name "settings.gradle.kts" \
+            -not -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: settings.gradle was not found."
+            find . -maxdepth 6 -type f | sort
+            exit 1
+          fi
+
+          ROOT_DIR=$(dirname "$SETTINGS_FILE")
+
+          echo "Gradle settings file:"
+          echo "$SETTINGS_FILE"
+
+          echo "Gradle root:"
+          echo "$ROOT_DIR"
+
+          echo "root_dir=$ROOT_DIR" >> "$GITHUB_OUTPUT"
+
+
+      # ==========================================
+      # 5. INSTALL JAVA 17
+      # ==========================================
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
@@ -30,181 +129,14 @@ jobs:
           java-version: '17'
 
 
-      # --------------------------------------------------
-      # 3. Set up Android SDK
-      # --------------------------------------------------
+      # ==========================================
+      # 6. SET UP ANDROID SDK
+      # ==========================================
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
 
-      # --------------------------------------------------
-      # 4. Install Android SDK components
-      # --------------------------------------------------
-      - name: Install Android SDK
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-36"
-          sdkmanager "build-tools;36.0.0"
-
-
-      # --------------------------------------------------
-      # 5. Install Gradle
-      # --------------------------------------------------
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
-
-
-      # --------------------------------------------------
-      # 6. Find the Android Gradle project
-      # --------------------------------------------------
-      - name: Find Gradle project
-        id: find_project
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT_DIR=""
-
-          while IFS= read -r settings_file; do
-            DIR="$(dirname "$settings_file")"
-
-            if [ -f "$DIR/build.gradle" ] || [ -f "$DIR/build.gradle.kts" ]; then
-              PROJECT_DIR="$DIR"
-              break
-            fi
-          done < <(find . -type f \( \
-            -name "settings.gradle" -o \
-            -name "settings.gradle.kts" \
-          \) -print)
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: No Gradle project was found."
-            echo ""
-            echo "Repository contents:"
-            find . -maxdepth 4 -type f | sort
-            exit 1
-          fi
-
-          PROJECT_DIR="${PROJECT_DIR#./}"
-
-          if [ -z "$PROJECT_DIR" ]; then
-            PROJECT_DIR="."
-          fi
-
-          echo "Gradle project found at: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-
-      # --------------------------------------------------
-      # 7. Show project structure for debugging
-      # --------------------------------------------------
-      - name: Show project structure
-        run: |
-          echo "Project directory:"
-          echo "${{ steps.find_project.outputs.project_dir }}"
-          echo ""
-          echo "Files:"
-          find "${{ steps.find_project.outputs.project_dir }}" -maxdepth 3 -type f | sort
-
-
-      # --------------------------------------------------
-      # 8. Build the Debug APK
-      # --------------------------------------------------
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT_DIR="${{ steps.find_project.outputs.project_dir }}"
-
-          echo "Building from:"
-          echo "$PROJECT_DIR"
-
-          cd "$PROJECT_DIR"
-
-          echo ""
-          echo "Gradle files:"
-          ls -la
-
-          echo ""
-          echo "Running Gradle..."
-          gradle assembleDebug --no-daemon --stacktrace
-
-
-      # --------------------------------------------------
-      # 9. Find the generated APK
-      # --------------------------------------------------
-      - name: Find generated APK
-        shell: bash
-        run: |
-          set -e
-
-          echo "Searching for APK files..."
-          echo ""
-
-          find . -type f -name "*.apk" -print
-
-          echo ""
-
-          APK_COUNT=$(find . -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "ERROR: No APK was generated."
-            exit 1
-          fi
-
-          echo "Found $APK_COUNT APK file(s)."
-
-
-      # --------------------------------------------------
-      # 10. Verify Debug APK
-      # --------------------------------------------------
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -e
-
-          APK=$(find . -type f -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: Debug APK was not found."
-            echo ""
-            echo "Available APK files:"
-            find . -type f -name "*.apk" -print
-            exit 1
-          fi
-
-          echo "APK found:"
-          echo "$APK"
-
-          echo ""
-          echo "APK size:"
-          ls -lh "$APK"
-
-
-      # --------------------------------------------------
-      # 11. Upload APK to GitHub Actions
-      # --------------------------------------------------
-      - name: Upload JARVIS APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: JARVIS-v1.5-HOLO-CORE-debug-apk
-          path: '**/build/outputs/apk/debug/*.apk'
-          if-no-files-found: error
-
-
-      # --------------------------------------------------
-      # 12. Build completed
-      # --------------------------------------------------
-      - name: Build complete
-        run: |
-          echo "=========================================="
-          echo " JARVIS v1.5 HOLO CORE BUILD SUCCESSFUL"
-          echo "=========================================="
-          echo ""
-          echo "The APK has been uploaded to GitHub Actions."
-          echo "Open the Artifacts section of this workflow run"
-          echo "to download the APK."
+      # ==========================================
+      # 7. INSTALL ANDROID SDK COMPONENTS
+      # ==========================================
+      - name:
