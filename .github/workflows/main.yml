@@ -47,7 +47,7 @@ jobs:
 
           # Search for an existing Gradle project.
           FOUND_SETTINGS=$(find . -type f \
-            -name "settings.gradle" -o -name "settings.gradle.kts" \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             -not -path "./.git/*" \
             | head -n 1 || true)
 
@@ -98,7 +98,7 @@ jobs:
           set -e
 
           SETTINGS_FILE=$(find . -type f \
-            -name "settings.gradle" -o -name "settings.gradle.kts" \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             -not -path "./.git/*" \
             | head -n 1 || true)
 
@@ -139,4 +139,148 @@ jobs:
       # ==========================================
       # 7. INSTALL ANDROID SDK COMPONENTS
       # ==========================================
-      - name:
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses || true
+
+          sdkmanager "platform-tools"
+
+          sdkmanager "platforms;android-36"
+
+          sdkmanager "build-tools;36.0.0"
+
+
+      # ==========================================
+      # 8. INSTALL GRADLE
+      # ==========================================
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+
+      # ==========================================
+      # 9. SHOW ANDROID PROJECT
+      # ==========================================
+      - name: Check Android project
+        shell: bash
+        run: |
+          PROJECT="${{ steps.gradle_root.outputs.root_dir }}"
+
+          echo "=========================================="
+          echo "ANDROID PROJECT"
+          echo "=========================================="
+
+          echo "Project directory:"
+          echo "$PROJECT"
+
+          echo ""
+          echo "Project files:"
+          find "$PROJECT" -maxdepth 4 -type f | sort
+
+
+      # ==========================================
+      # 10. BUILD DEBUG APK
+      # ==========================================
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT="${{ steps.gradle_root.outputs.root_dir }}"
+
+          echo "=========================================="
+          echo "BUILDING JARVIS"
+          echo "=========================================="
+
+          cd "$PROJECT"
+
+          echo "Working directory:"
+          pwd
+
+          echo ""
+          echo "Starting Gradle..."
+
+          gradle assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+
+      # ==========================================
+      # 11. FIND APK
+      # ==========================================
+      - name: Find APK
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "SEARCHING FOR APK"
+          echo "=========================================="
+
+          find . -type f -name "*.apk" -print
+
+          APK_COUNT=$(find . -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo ""
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo ""
+          echo "APK files found: $APK_COUNT"
+
+
+      # ==========================================
+      # 12. VERIFY APK
+      # ==========================================
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK=$(find . -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: Debug APK not found."
+            exit 1
+          fi
+
+          echo "=========================================="
+          echo "APK SUCCESSFULLY CREATED"
+          echo "=========================================="
+
+          echo ""
+          echo "APK:"
+          echo "$APK"
+
+          echo ""
+          echo "APK size:"
+          ls -lh "$APK"
+
+
+      # ==========================================
+      # 13. UPLOAD APK
+      # ==========================================
+      - name: Upload JARVIS APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-v1.5-HOLO-CORE-debug-apk
+          path: '**/build/outputs/apk/debug/*.apk'
+          if-no-files-found: error
+
+
+      # ==========================================
+      # 14. SUCCESS
+      # ==========================================
+      - name: Build complete
+        run: |
+          echo ""
+          echo "=========================================="
+          echo " JARVIS v1.5 HOLO CORE"
+          echo " BUILD SUCCESSFUL"
+          echo "=========================================="
+          echo ""
+          echo "Your APK is available in:"
+          echo "Actions → This workflow run → Artifacts"
