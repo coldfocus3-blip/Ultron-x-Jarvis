@@ -1,4 +1,4 @@
-name: Build JARVIS v1.4 HOLO CORE
+name: Build JARVIS v1.5 STABLE BOOT
 
 on:
   workflow_dispatch:
@@ -29,71 +29,25 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Find HOLO CORE package
+      - name: Verify project
         run: |
-          set -e
+          test -f settings.gradle
+          test -f app/build.gradle
+          test -f app/src/main/AndroidManifest.xml
 
-          ZIP="$(find "$GITHUB_WORKSPACE" \
-            -maxdepth 1 \
-            -type f \
-            -name 'JARVIS-v1.4-HOLO-CORE.zip' \
-            -print -quit)"
-
-          if [ -z "$ZIP" ]; then
-            echo "ERROR: JARVIS v1.4 package was not found."
-            ls -lah
-            exit 1
-          fi
-
-          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
-
-      - name: Unpack project
+      - name: Build JARVIS v1.5
         run: |
-          set -e
-
-          rm -rf buildsrc
-          mkdir -p buildsrc
-
-          unzip -q "$ZIP" -d buildsrc
-
-          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/buildsrc" \
-            -name settings.gradle \
-            -type f \
-            -print -quit | xargs -r dirname)"
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found."
-            find buildsrc -maxdepth 5 -type f
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Build JARVIS
-        run: |
-          set -e
-          cd "$PROJECT_DIR"
-
-          gradle assembleDebug \
-            --no-daemon \
-            --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
-          set -e
-
-          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-
+          APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK"
-
-          echo "================================"
-          echo "JARVIS HOLO CORE BUILD SUCCESS"
-          echo "================================"
-
+          echo "JARVIS v1.5 BUILD SUCCESS"
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: JARVIS-v1.4-HOLO-CORE
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          name: JARVIS-v1.5-STABLE-BOOT
+          path: app/build/outputs/apk/debug/app-debug.apk
