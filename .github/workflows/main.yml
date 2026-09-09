@@ -29,25 +29,62 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Verify project
+      - name: Find JARVIS v1.5 ZIP
         run: |
-          test -f settings.gradle
-          test -f app/build.gradle
-          test -f app/src/main/AndroidManifest.xml
+          set -e
 
-      - name: Build JARVIS v1.5
+          ZIP="$(find "$GITHUB_WORKSPACE" \
+            -maxdepth 1 \
+            -type f \
+            -name 'JARVIS-v1.5-STABLE-BOOT.zip' \
+            -print -quit)"
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: JARVIS-v1.5-STABLE-BOOT.zip was not found."
+            echo "Files in repository:"
+            ls -lah
+            exit 1
+          fi
+
+          echo "Found ZIP:"
+          echo "$ZIP"
+
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Unpack JARVIS project
         run: |
-          gradle assembleDebug --no-daemon --stacktrace
+          set -e
 
-      - name: Verify APK
+          rm -rf buildsrc
+          mkdir -p buildsrc
+
+          echo "Unpacking JARVIS ZIP..."
+          unzip -q "$ZIP" -d buildsrc
+
+          echo "Searching for Android project..."
+
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/buildsrc" \
+            -name settings.gradle \
+            -type f \
+            -print -quit | xargs -r dirname)"
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: settings.gradle was not found inside the JARVIS ZIP."
+            echo "ZIP contents:"
+            find buildsrc -maxdepth 6 -type f | sort
+            exit 1
+          fi
+
+          echo "Android project found:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Verify Android project
         run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          echo "JARVIS v1.5 BUILD SUCCESS"
-          ls -lh "$APK"
+          set -e
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: JARVIS-v1.5-STABLE-BOOT
-          path: app/build/outputs/apk/debug/app-debug.apk
+          cd "$PROJECT_DIR"
+
+          echo "================================"
+          echo "VERIFYING JARVIS PROJECT
